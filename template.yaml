@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Timeout: 5
+    Handler: main
+    Runtime: go1.x
+    Tracing: Active
+
+Resources:
+  ImagesBucket:
+    Type: AWS::S3::Bucket
+    Properties: {}
+
+  ImagesBucketAccessPoint:
+    Type: AWS::S3::AccessPoint
+    Properties:
+      Bucket: !Ref ImagesBucket
+      Name: images-endpoint-3
+      # Policy:
+      #   Statement:
+      #     - Action: "s3:GetObject"
+      #       Effect: "Allow"
+      #       Resource: !Sub "${ImagesBucket.Arn}"
+      #       Principal: "*"
+      # PublicAccessBlockConfiguration:
+      #   BlockPublicAcls: false
+      #   BlockPublicPolicy: false
+      #   IgnorePublicAcls: false
+      #   RestrictPublicBuckets: false
+
+  ObjectLambdaAccessPoint:
+    Type: AWS::S3ObjectLambda::AccessPoint
+    Properties:
+      Name: object-lambda-endpoint
+      ObjectLambdaConfiguration:
+        CloudWatchMetricsEnabled: true
+        SupportingAccessPoint: !Sub "arn:${AWS::Partition}:s3:${AWS::Region}:${AWS::AccountId}:accesspoint/${ImagesBucketAccessPoint}"
+        TransformationConfigurations:
+          - Actions:
+              - GetObject
+            ContentTransformation:
+              AwsLambda:
+                FunctionArn: !GetAtt TransformationFunction.Arn
+
+  TransformationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: transformation/
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: "s3-object-lambda:WriteGetObjectResponse"
+              Resource:
+                - !GetAtt ImagesBucket.Arn
+                - !Sub "${ImagesBucket.Arn}/*"
+
+Outputs:
+  Bucket:
+    Value: !Ref ImagesBucket
+  AccessPointArn:
+    Value: !GetAtt ObjectLambdaAccessPoint.Arn
